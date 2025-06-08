@@ -4,30 +4,30 @@
 *Node.js Developer (Software Engineer / Backend Developer at FarmFusion)*
 
 > **Передумови:**
-> На створення цього артикулу мене підштовхнула нерозкритість теми проєктно-орієнтованого проєктування в Node.js. Є дужа багато індивідуальних підходів, які є непопулярними: кожен автор приносить щось своє і часто вони суперечать одне одному. Хоча є загальний концепт DDD, але не всі його практики є потрібними для розробки саме в умовах Node.js, ситуація схожа до патернів `Gang Of Four`, опис яких має лише дотичний стосунок до світу JavaScript-розробки. Бажаю Вам приємного читання і щиро запрошую до редакції чи дискусії.
+> На створення цього артикулу мене підштовхнула нерозкритість теми проєктно-орієнтованого проєктування в Node.js. Є дужа багато індивідуальних підходів, які є непопулярними: кожен автор приносить щось своє і часто вони суперечать одне одному. Хоча є загальний концепт DDD, але не всі його практики є потрібними для розробки саме в умовах Node.js, ситуація схожа до патернів `Gang Of Four`, опис яких має лише дотичний стосунок до світу JavaScript-розробки. Бажаю Вам приємного читання і щиро запрошую до редакції чи дискусію:)
 
 ---
 
 ### Зміст
 
-1.  **Domain**
+1.  [**Domain**](#domain)
     *   1.1 [Entities](#entities)
     *   1.2 [Value Objects](#value-objects)
-    *   1.3 [Repositories (Інтерфейси)](#repositories-інтерфейси-в-domain)
-2.  **Application**
+    *   1.3 [Repositories (Інтерфейси)](#repositories-інтерфейси)
+2.  [**Application**](#application)
     *   2.1 [Services](#services)
     *   2.2 [Application DTOs](#application-dtos)
-    *   2.3 [Структура](#структура-application)
-3.  **Infrastructure**
+    *   2.3 [Структура (Application)](#структура-application)
+3.  [**Infrastructure**](#infrastructure)
     *   3.1 [Database](#database)
         *   3.1.1 [Маппери](#маппери)
-    *   3.2 [Repositories (Реалізації)](#repositories-реалізації-в-infrastructure)
-    *   3.3 [Структура](#структура-infrastructure)
-4.  **Presentation**
+    *   3.2 [Repositories (Реалізації)](#repositories-реалізації)
+    *   3.3 [Структура (Infrastructure)](#структура-infrastructure)
+4.  [**Presentation**](#presentation)
     *   4.1 [Controllers / Routes](#controllers--routes)
-    *   4.2 [DTOs](#dtos-в-presentation)
-    *   4.3 [Структура](#структура-presentation)
-5.  **[Резюме](#резюме)**
+    *   4.2 [DTOs (Presentation)](#dtos-presentation)
+    *   4.3 [Структура (Presentation)](#структура-presentation)
+5.  [**Резюме**](#резюме)
 
 ---
 
@@ -437,7 +437,7 @@ export class RegisterUserService {
 ```
 
 
-#### **Application DTO**
+#### **Application DTOs**
 Data Transfer Objects:
     * описують вхідні та вихідні дані для сервісів
     * адаптують дані до/з домену
@@ -532,7 +532,7 @@ export class UserMapper {
 }
 ```
 
-#### **Repositories**
+#### **Repositories (Реалізації)**
 > В цій частині реалізуються репозиторії, прописані в домені, звісно це не stricte, але зачасту робиться саме так.
 
 ```ts
@@ -578,7 +578,7 @@ export class UserRepository implements IUserRepository {
 }
 ```
 
-#### **Структура**
+#### **Структура (Application)**
 ```text
 src/
 └── infrastructure/
@@ -748,7 +748,7 @@ export class UsersController {
 }
 ```
 
-#### **DTO**
+#### **DTOs (Presentation)**
 В цьому прошарку DTO (Data Transfer Objects) варто поділити на два типи: 
 * **Request DTO** — структура, яка точно описує, які дані приймаються з зовнішнього інтерфейсу.
   - Використовуються для валідації (наприклад, `Joi`, `class-validator`, `zod`).
@@ -789,7 +789,7 @@ export class RegisterUserDto {
 }
 ```
 
-#### **Структура**
+#### **Структура (Infrastructure)**
 ```text
 src/
 └── interfaces/                   # або presentation/
