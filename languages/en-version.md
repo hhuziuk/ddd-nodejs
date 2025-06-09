@@ -435,7 +435,7 @@ Here is a diagram that clearly shows the web of relations we get without creatin
 
 Here is a diagram demonstrating the clarity that using aggregates gives us:
 
-![Aggregate Schema](../images/aggregate-schema-2.png)
+![Aggregate Schema](../images/aggregate-schema-3.png)
 
 *Schema 3: Code separated into aggregates. Source: [Domain-Driven Aggregates Explained | Why you should use them](https://youtu.be/SvnsOX4oVVo?si=fOr35OPCDUUFNWQn)*
 

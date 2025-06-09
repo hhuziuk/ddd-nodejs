@@ -436,7 +436,7 @@ Oto schemat, który obrazowo pokazuje, jaką pajęczynę relacji otrzymujemy, ni
 
 Oto schemat demonstrujący przejrzystość, jaką daje nam użycie agregatów:
 
-![Aggregate Schema](../images/aggregate-schema-2.png)
+![Aggregate Schema](../images/aggregate-schema-3.png)
 
 *Schemat 3: Kod podzielony na agregaty. Źródło: [Domain-Driven Aggregates Explained | Why you should use them](https://youtu.be/SvnsOX4oVVo?si=fOr35OPCDUUFNWQn)*
 

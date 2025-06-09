@@ -435,7 +435,7 @@ export interface IUserRepository {
 
 Ось схема, яка демонструє чіткість, яку дає нам використання агрегатів:
 
-![Aggregate Schema](../images/aggregate-schema-2.png)
+![Aggregate Schema](../images/aggregate-schema-3.png)
 
 *Schema 3: Код сепарований на агрегати. Джерело: [Domain-Driven Aggregates Explained | Why you should use them](https://youtu.be/SvnsOX4oVVo?si=fOr35OPCDUUFNWQn)*
 
