@@ -14,8 +14,8 @@
     *   1.1 [Entities](#entities)
     *   1.2 [Value Objects](#value-objects)
     *   1.3 [Repositories (Інтерфейси)](#repositories-інтерфейси)
-    *   1.4 [Aggregates (Агрегатори)](#Aggregates-інтерфейси)
-    *   1.5 [Factories (Фабрики)](#Factories-Фабрики)
+    *   1.4 [Aggregates (Агрегатори)](#aggregates-агрегатори)
+    *   1.5 [Factories (Фабрики)](#factories-фабрики)
 2.  [**Application**](#application)
     *   2.1 [Services](#services)
     *   2.2 [Application DTOs](#application-dtos)
@@ -418,7 +418,7 @@ export interface IUserRepository {
 
 Ось схема, на якій зображений приклад взаємодії двох агрегатів:
 
-![Aggregate Schema](images/aggregate-schema-1.png)
+![Aggregate Schema](../images/aggregate-schema-1.png)
 
 *Schema 1: Схема взаємодії агрегатів. Джерело: [Domain-Driven Aggregates Explained | Why you should use them](https://youtu.be/SvnsOX4oVVo?si=fOr35OPCDUUFNWQn)*
 
@@ -429,13 +429,13 @@ export interface IUserRepository {
 * **Чіткість моделі:** кластери об’єктів логічно об’єднані в одне ціле за бізнес-контекстом.
 
 Ось схема, яка наглядно показує, яку павутину реляцій ми отримуємо, не створюючи агрегатів:
-![No-aggregate Schema](images/aggregate-schema-2.png)
+![No-aggregate Schema](../images/aggregate-schema-2.png)
 
 *Schema 2: Відсутність агрегатів в коді. Джерело: [Domain-Driven Aggregates Explained | Why you should use them](https://youtu.be/SvnsOX4oVVo?si=fOr35OPCDUUFNWQn)*
 
 Ось схема, яка демонструє чіткість, яку дає нам використання агрегатів:
 
-![Aggregate Schema](images/aggregate-schema-2.png)
+![Aggregate Schema](../images/aggregate-schema-2.png)
 
 *Schema 3: Код сепарований на агрегати. Джерело: [Domain-Driven Aggregates Explained | Why you should use them](https://youtu.be/SvnsOX4oVVo?si=fOr35OPCDUUFNWQn)*
 
