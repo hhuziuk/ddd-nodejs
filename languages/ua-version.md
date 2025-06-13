@@ -13,9 +13,8 @@
 1.  [**Domain**](#domain)
     *   1.1 [Entities](#entities)
     *   1.2 [Value Objects](#value-objects)
-    *   1.3 [Repositories (Інтерфейси)](#repositories-інтерфейси)
-    *   1.4 [Aggregates (Агрегатори)](#aggregates-агрегатори)
-    *   1.5 [Factories (Фабрики)](#factories-фабрики)
+    *   1.3 [Aggregates (Агрегатори)](#aggregates-агрегатори)
+    *   1.4 [Factories (Фабрики)](#factories-фабрики)
 2.  [**Application**](#application)
     *   2.1 [Services](#services)
     *   2.2 [Application DTOs](#application-dtos)
@@ -23,8 +22,9 @@
 3.  [**Infrastructure**](#infrastructure)
     *   3.1 [Database](#database)
         *   3.1.1 [Маппери](#маппери)
-    *   3.2 [Repositories (Реалізації)](#repositories-реалізації)
-    *   3.3 [Структура (Infrastructure)](#структура-infrastructure)
+    *   3.2 [Repositories (Інтерфейси)](#repositories-інтерфейси)
+    *   3.3 [Repositories (Реалізації)](#repositories-реалізації)
+    *   3.4 [Структура (Infrastructure)](#структура-infrastructure)
 4.  [**Presentation**](#presentation)
     *   4.1 [Controllers / Routes](#controllers--routes)
     *   4.2 [DTOs (Presentation)](#dtos-presentation)
@@ -378,28 +378,6 @@ export class InvoiceService {
     return invoice;
   }
 }
-```
-
-#### **Repositories (Інтерфейси)**
-> В `Domain` ми можемо описати інтерфейси, які в подальшому ми зможемо імплементувати в `Infrastructure` 
-
-Ось невеличкий приклад, який ми потім будемо реалізовувати в `Infrastructure`
-
-```ts
-// domain/repositories/user.repository.interface.ts
-import { User } from "../../domain/entities/user.entity";
-
-export const USER_REPOSITORY = "USER_REPOSITORY";
-
-export interface IUserRepository {
-  create(user: User): Promise<User>;
-  findById(userId: string): Promise<User | null>;
-  findByEmail(email: string): Promise<User | null>;
-  findAll(): Promise<User[]>;
-  update(userId: string, user: Partial<User>): Promise<User>;
-  delete(userId: string): Promise<void>;
-}
-
 ```
 
 #### Aggregates (Агрегатори)
@@ -853,7 +831,7 @@ async register(@Body() body: RegisterUserDto) { // наше перше DTO
 }
 ```
 
-#### **Структура**
+#### **Структура (Application)**
 Ось приклад структури застосунку для Application прошарку:
 ```text
 src/
@@ -917,6 +895,28 @@ export class UserMapper {
     return orm;
   }
 }
+```
+
+#### **Repositories (Інтерфейси)**
+> В `Infrastructure` ми можемо описати інтерфейси, які в подальшому ми зможемо імплементувати в цьому ж прошарку.
+
+Ось невеличкий приклад, який ми потім будемо реалізовувати в `Infrastructure`
+
+```ts
+// domain/repositories/user.repository.interface.ts
+import { User } from "../../domain/entities/user.entity";
+
+export const USER_REPOSITORY = "USER_REPOSITORY";
+
+export interface IUserRepository {
+  create(user: User): Promise<User>;
+  findById(userId: string): Promise<User | null>;
+  findByEmail(email: string): Promise<User | null>;
+  findAll(): Promise<User[]>;
+  update(userId: string, user: Partial<User>): Promise<User>;
+  delete(userId: string): Promise<void>;
+}
+
 ```
 
 #### **Repositories (Реалізації)**
