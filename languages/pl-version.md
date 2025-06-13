@@ -14,9 +14,8 @@
 1.  [**Domena (Domain)**](#domena-domain)
     *   1.1 [Encje (Entities)](#encje-entities)
     *   1.2 [Obiekty Wartości (Value Objects)](#obiekty-wartości-value-objects)
-    *   1.3 [Repozytoria (Interfejsy)](#repozytoria-interfejsy)
-    *   1.4 [Agregaty (Aggregates)](#agregaty-aggregates)
-    *   1.5 [Fabryki (Factories)](#fabryki-factories)
+    *   1.3 [Agregaty (Aggregates)](#agregaty-aggregates)
+    *   1.4 [Fabryki (Factories)](#fabryki-factories)
 2.  [**Aplikacja (Application)**](#aplikacja-application)
     *   2.1 [Serwisy (Services)](#serwisy-services)
     *   2.2 [DTO Aplikacji (Application DTOs)](#dto-aplikacji-application-dtos)
@@ -24,8 +23,9 @@
 3.  [**Infrastruktura (Infrastructure)**](#infrastruktura-infrastructure)
     *   3.1 [Baza Danych (Database)](#baza-danych-database)
         *   3.1.1 [Mappery (Mappers)](#mappery-mappers)
-    *   3.2 [Repozytoria (Implementacje)](#repozytoria-implementacje)
-    *   3.3 [Struktura (Infrastruktura)](#struktura-infrastruktura)
+    *   3.2 [Repozytoria (Interfejsy)](#repozytoria-interfejsy)
+    *   3.3 [Repozytoria (Implementacje)](#repozytoria-implementacje)
+    *   3.4 [Struktura (Infrastruktura)](#struktura-infrastruktura)
 4.  [**Prezentacja (Presentation)**](#prezentacja-presentation)
     *   4.1 [Kontrolery / Trasy (Controllers / Routes)](#kontrolery--trasy-controllers--routes)
     *   4.2 [DTO (Prezentacja)](#dto-prezentacja)
@@ -379,28 +379,6 @@ export class InvoiceService {
     return invoice;
   }
 }
-```
-
-#### **Repozytoria (Interfejsy)**
-> W warstwie `Domain` możemy opisać interfejsy, które w przyszłości będziemy mogli zaimplementować w warstwie `Infrastructure`.
-
-Oto mały przykład, który później zaimplementujemy w warstwie `Infrastructure`:
-
-```ts
-// domain/repositories/user.repository.interface.ts
-import { User } from "../../domain/entities/user.entity";
-
-export const USER_REPOSITORY = "USER_REPOSITORY";
-
-export interface IUserRepository {
-  create(user: User): Promise<User>;
-  findById(userId: string): Promise<User | null>;
-  findByEmail(email: string): Promise<User | null>;
-  findAll(): Promise<User[]>;
-  update(userId: string, user: Partial<User>): Promise<User>;
-  delete(userId: string): Promise<void>;
-}
-
 ```
 
 #### Agregaty (Aggregates)
@@ -917,6 +895,28 @@ export class UserMapper {
     return orm;
   }
 }
+```
+
+#### **Repozytoria (Interfejsy)**
+> W warstwie `Infrastructure` możemy opisać interfejsy, które w przyszłości będziemy mogli zaimplementować.
+
+Oto mały przykład, który później zaimplementujemy w warstwie `Infrastructure`:
+
+```ts
+// domain/repositories/user.repository.interface.ts
+import { User } from "../../domain/entities/user.entity";
+
+export const USER_REPOSITORY = "USER_REPOSITORY";
+
+export interface IUserRepository {
+  create(user: User): Promise<User>;
+  findById(userId: string): Promise<User | null>;
+  findByEmail(email: string): Promise<User | null>;
+  findAll(): Promise<User[]>;
+  update(userId: string, user: Partial<User>): Promise<User>;
+  delete(userId: string): Promise<void>;
+}
+
 ```
 
 #### **Repozytoria (Implementacje)**
