@@ -13,9 +13,8 @@
 1.  [**Domain**](#domain)
     *   1.1 [Entities](#entities)
     *   1.2 [Value Objects](#value-objects)
-    *   1.3 [Repositories (Interfaces)](#repositories-interfaces)
-    *   1.4 [Aggregates](#aggregates)
-    *   1.5 [Factories](#factories)
+    *   1.3 [Aggregates](#aggregates)
+    *   1.4 [Factories](#factories)
 2.  [**Application**](#application)
     *   2.1 [Services](#services)
     *   2.2 [Application DTOs](#application-dtos)
@@ -23,8 +22,9 @@
 3.  [**Infrastructure**](#infrastructure)
     *   3.1 [Database](#database)
         *   3.1.1 [Mappers](#mappers)
-    *   3.2 [Repositories (Implementations)](#repositories-implementations)
-    *   3.3 [Structure (Infrastructure)](#structure-infrastructure)
+    *   3.2 [Repositories (Interfaces)](#repositories-interfaces)
+    *   3.3 [Repositories (Implementations)](#repositories-implementations)
+    *   3.4 [Structure (Infrastructure)](#structure-infrastructure)
 4.  [**Presentation**](#presentation)
     *   4.1 [Controllers / Routes](#controllers--routes)
     *   4.2 [DTOs (Presentation)](#dtos-presentation)
@@ -378,28 +378,6 @@ export class InvoiceService {
     return invoice;
   }
 }
-```
-
-#### **Repositories (Interfaces)**
-> In `Domain` we can describe interfaces that we can later implement in `Infrastructure`.
-
-Here is a small example that we will later implement in `Infrastructure`:
-
-```ts
-// domain/repositories/user.repository.interface.ts
-import { User } from "../../domain/entities/user.entity";
-
-export const USER_REPOSITORY = "USER_REPOSITORY";
-
-export interface IUserRepository {
-  create(user: User): Promise<User>;
-  findById(userId: string): Promise<User | null>;
-  findByEmail(email: string): Promise<User | null>;
-  findAll(): Promise<User[]>;
-  update(userId: string, user: Partial<User>): Promise<User>;
-  delete(userId: string): Promise<void>;
-}
-
 ```
 
 #### Aggregates
@@ -916,6 +894,28 @@ export class UserMapper {
     return orm;
   }
 }
+```
+
+#### **Repositories (Interfaces)**
+> In `infrastructure` we can describe interfaces that we can later implement.
+
+Here is a small example that we will later implement in `Infrastructure`:
+
+```ts
+// domain/repositories/user.repository.interface.ts
+import { User } from "../../domain/entities/user.entity";
+
+export const USER_REPOSITORY = "USER_REPOSITORY";
+
+export interface IUserRepository {
+  create(user: User): Promise<User>;
+  findById(userId: string): Promise<User | null>;
+  findByEmail(email: string): Promise<User | null>;
+  findAll(): Promise<User[]>;
+  update(userId: string, user: Partial<User>): Promise<User>;
+  delete(userId: string): Promise<void>;
+}
+
 ```
 
 #### **Repositories (Implementations)**
