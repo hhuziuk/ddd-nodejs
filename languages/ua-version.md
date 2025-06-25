@@ -29,8 +29,9 @@
     *   4.1 [Controllers / Routes](#controllers--routes)
     *   4.2 [DTOs (Presentation)](#dtos-presentation)
     *   4.3 [Структура (Presentation)](#структура-presentation)
-5.  [**Резюме**](#резюме)
-6.  [**Посилання**](#посилання)
+5.  [**Exceptions**](#exceptions)
+6.  [**Резюме**](#резюме)
+7.  [**Посилання**](#посилання)
 
 ---
 
@@ -763,7 +764,6 @@ const order = await orderFactory.createOrder(userId, payload.items);
 * Коли потрібно ін’єктити зовнішні сервіси або репозиторії під час створення.
 * Коли хочеться чітко розділити обов’язки: фабрика — за створення, агрегат — за бізнес-логіку після створення.
 
-
 ---
 
 ### **Application**
@@ -1200,6 +1200,376 @@ src/
         └── gateways/
 ```
 
+---
+
+### Exceptions:
+
+> У цьому розділі розглянемо важливу й невід’ємну частину будь-якого застосунку — обробку винятків. Один із ключових аспектів цієї роботи — правильно кидати винятки: у потрібному місці, без дублювання й із чітким розмежуванням відповідальностей.
+>
+> У цьому допомагає підхід DDD, де кожен шар архітектури має свою зону відповідальності та працює зі своїм власним набором винятків.
+
+Спершу нам потрібно окреслити зону відповідальності кожного шару.
+
+#### Domain Layer
+У цьому прошарку ми формуєємо базові винятки, що безпосередньо повʼязані з бізнес-логікою. Наприклад, у нас є сутність `Order`, і ми викликаємо метод підтвердження замовлення. Якщо замовлення не містить жодного товару, згідно з бізнес-правилами, ми маємо викинути виняток.
+
+Звісно, можна просто написати:
+
+```ts
+throw new Error("Cannot confirm an order with no items.");
+```
+
+Але такий підхід має суттєвий недолік: виняток не є реюзабельним і його складно типізувати чи обробляти вибірково. Якщо така помилка повторюється в різних місцях (а це ймовірно), ми постійно повторюватимемо одну й ту саму конструкцію `throw new Error(...)`, що призводить до дублювання та порушення принципів чистого коду.
+Натомість доцільніше створити спеціалізований клас винятку — наприклад `CannotConfirmEmptyOrderException` — і використовувати його скрізь, де це бізнес-правило порушується. Це підвищує читаність, повторне використання та контроль над помилками.
+
+Ось наглядний приклад:
+
+`order.entity.ts`
+
+```ts
+import { CannotConfirmEmptyOrderException } from './exceptions/domain.exceptions';
+
+export class Order {
+  private confirmed = false;
+
+  constructor(private readonly items: string[]) {}
+
+  confirm(): void {
+    if (this.items.length === 0) {
+      throw new CannotConfirmEmptyOrderException();
+    }
+    this.confirmed = true;
+  }
+}
+```
+
+`domain.exceptions.ts`
+
+```ts
+export class DomainException extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DomainException';
+  }
+}
+
+export class CannotConfirmEmptyOrderException extends DomainException {
+  constructor() {
+    super('Cannot confirm an order with no items.');
+    this.name = 'CannotConfirmEmptyOrderException';
+  }
+}
+```
+
+#### Application Layer
+
+У цьому шарі реалізуються конкретні бізнес-кейси (use-case). Основні моменти:
+
+* **Мапінг доменних винятків.** Всі `DomainException` перехоплюються й перетворюються на прикладні `ApplicationException` (з додаванням коду помилки, повідомлення та контексту).
+* **Валідація DTO.** При роботі з вхідними DTO виконується перевірка даних — у разі помилок формується `ValidationException`.
+* **Логування.** Кожен крок виконання use-case супроводжується логами для полегшення відстеження та відладки.
+
+Таким чином, шар Application спочатку ловить доменні винятки, додає до них необхідний контекст (логіку retry, audit, коди помилок) і повертає результат у Presentation Layer.
+
+Доповнюючи наш попередній приклад з `Order`:
+
+`confirm-order.service.ts`
+
+```ts
+import { Injectable, Logger } from '@nestjs/common';
+import { OrderRepository } from '../infrastructure/order.repository';
+import { CannotConfirmEmptyOrderException } from '../domain/exceptions/domain.exceptions';
+import { OrderConfirmationFailedException } from '../application/exceptions/application.exceptions';
+
+@Injectable()
+export class ConfirmOrderService {
+  private readonly logger = new Logger(ConfirmOrderService.name);
+
+  constructor(private readonly orderRepo: OrderRepository) {}
+
+  async execute(orderId: string): Promise<void> {
+    this.logger.log(`Starting confirmation for Order ${orderId}`);
+
+    let order;
+    try {
+      order = await this.orderRepo.findById(orderId);
+      this.logger.debug(`Order ${orderId} fetched successfully`);
+    } catch (err) {
+      this.logger.error(
+        `Failed to fetch Order ${orderId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      // тут ми пробуємо реєструвати аудит або ретраї
+      throw new OrderConfirmationFailedException(
+        'Could not retrieve order',
+        'order.fetch_failed',
+        err as Error,
+      );
+    }
+
+    try {
+      order.confirm();
+      await this.orderRepo.save(order);
+      this.logger.log(`Order ${orderId} confirmed and saved`);
+    } catch (err) {
+      if (err instanceof CannotConfirmEmptyOrderException) {
+        this.logger.warn(
+          `Business rule violation on Order ${orderId}: ${err.message}`,
+        );
+        throw new OrderConfirmationFailedException(
+          err.message,
+          'order.empty',
+          err,
+        );
+      }
+
+      this.logger.error(
+        `Unexpected error on Order ${orderId} confirmation`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw err; // несподівані помилки ідуть далі
+    }
+  }
+}
+```
+
+`application.exceptions.ts`
+
+```ts
+export class ApplicationException extends Error {
+  constructor(message: string, public readonly code: string, public readonly cause?: Error) {
+    super(message);
+    this.name = 'ApplicationException';
+    if (cause) this.stack = cause.stack;
+  }
+}
+
+export class OrderConfirmationFailedException extends ApplicationException {
+  constructor(message: string, code: string, cause?: Error) {
+    super(message, code, cause);
+    this.name = 'OrderConfirmationFailedException';
+  }
+}
+```
+
+#### Infrastructure Layer
+
+У цьому шарі реалізуються інтеграції зі сторонніми сервісами(бази даних, стороннє API, кеш, черги, тощо) і, відповідно, ми працюємо з помилками, які ці 
+сторонні сервіси нам повертають. На цьому рівні типовими є: `SqlException`, `IOException`, `HttpRequestException`, тощо.
+
+Щоб ізолювати інші шари від деталей реалізації та уникнути «витоку» технічної інформації, ми:
+
+1. **Ловимо низькорівневі винятки** від драйверів і клієнтів зовнішніх сервісів.
+2. **Переупакуємо** їх у зрозумілі для системи абстракції — власні кастомні помилки на кшталт `StorageUnavailableException`, `CacheAccessException`, `MessageQueueException` тощо.
+3. **Логуємо** кожну помилку з контекстом (назва операції, параметри запиту, таймстемп) у центральну систему моніторингу чи audit-сервер.
+
+```ts
+try {
+  await this.db.query(/* … */);
+} catch (err) {
+  this.logger.error('DB query failed', err.stack);
+  throw new StorageUnavailableException(err);
+}
+```
+
+**Чому це важливо?**
+
+* **Ізоляція шарів.** Доменний і прикладний код не бачать і не залежать від специфіки SQL-драйвера чи HTTP-клієнта.
+* **Чистіше трасування помилок.** Вони завжди мають однаковий формат, містять власні коди й повідомлення, а також «cause» (початкову помилку) для подальшого аналізу.
+* **Можливість retry та circuit-breaker.** У разі миттєвих збоїв легко застосувати стратегії повторних спроб чи обмеження навантаження на сервіс.
+
+Приклад імплементації:
+
+`storage.exceptions.ts`
+
+```ts
+export class StorageUnavailableException extends Error {
+  constructor(cause?: unknown) {
+    super('Storage service is unavailable');
+    this.name = 'StorageUnavailableException';
+    if (cause instanceof Error) {
+      // зберігаємо початковий стек для діагностики
+      this.stack = cause.stack;
+    }
+  }
+}
+```
+
+`not-found.exceptions.ts`
+
+```ts
+export class OrderNotFoundException extends Error {
+  constructor(orderId: string) {
+    super(`Order with id=${orderId} not found`);
+    this.name = 'OrderNotFoundException';
+  }
+}
+```
+
+`order.repository.ts`
+
+```ts
+import { Injectable, Logger } from '@nestjs/common';
+import { Repository, EntityNotFoundError } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+
+import { OrderEntity } from './order.entity';
+import { Order } from '../domain/order';
+import { OrderMapper } from './order.mapper';
+import { StorageUnavailableException } from './exceptions/storage.exceptions';
+import { OrderNotFoundException } from './exceptions/not-found.exceptions';
+
+@Injectable()
+export class OrderRepository {
+  private readonly logger = new Logger(OrderRepository.name);
+
+  constructor(
+    @InjectRepository(OrderEntity)
+    private readonly repo: Repository<OrderEntity>,
+    private readonly mapper: OrderMapper,
+  ) {}
+
+  async findById(id: string): Promise<Order> {
+    try {
+      this.logger.debug(`Fetching Order ${id} from database`);
+      const entity = await this.repo.findOneOrFail({ where: { id } });
+      this.logger.debug(`Order ${id} found, mapping to domain`);
+      return this.mapper.toDomain(entity);
+    } catch (e) {
+      // якщо запис не знайдено — кидаємо виняток
+      if (e instanceof EntityNotFoundError) {
+        this.logger.warn(`Order ${id} not found`);
+        throw new OrderNotFoundException(id);
+      }
+      // усі інші помилки — технічні, переупаковуємо
+      this.logger.error(
+        `Error fetching Order ${id}`,
+        e instanceof Error ? e.stack : String(e),
+      );
+      throw new StorageUnavailableException(e);
+    }
+  }
+
+  async save(order: Order): Promise<void> {
+    try {
+      this.logger.debug(`Saving Order ${order.id} to database`);
+      const entity = this.mapper.toEntity(order);
+      await this.repo.save(entity);
+      this.logger.log(`Order ${order.id} saved successfully`);
+    } catch (e) {
+      this.logger.error(
+        `Error saving Order ${order.id}`,
+        e instanceof Error ? e.stack : String(e),
+      );
+      throw new StorageUnavailableException(e);
+    }
+  }
+}
+```
+
+#### Presentation Layer
+
+На рівні Presentation Layer ми перетворюємо результати виконання use-case (або кинуті виключення) на коректні HTTP(і не тільки)-відповіді. Ось кілька ключових моментів:
+1. Перехоплення результатів
+Контролер отримує або Result із сервісу, або проброшені виключення, і мапить їх у стандартні NestJS-експешени:
+
+    * `BadRequestException` (HTTP 400) для помилок валідації чи бізнес-правил.
+    * `NotFoundException` (HTTP 404) якщо ресурс не знайдений.
+    * `ServiceUnavailableException` (HTTP 503) для недоступності зовнішніх сервісів.
+    * `InternalServerErrorException` (HTTP 500) для всього іншого.
+
+2. Глобальний фільтр:
+Для всіх невловлених помилок реєструємо `AllExceptionsFilter`, який формує єдиний формат відповіді й логує помилки.
+
+Ось приклад реалізації:
+
+`order-exceptions.filter.ts`
+
+```ts
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpException,
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+  Injectable,
+} from '@nestjs/common';
+import { Response } from 'express';
+import { OrderConfirmationFailedException } from '../../application/exceptions/application.exceptions';
+import { OrderNotFoundException } from '../../infrastructure/exceptions/not-found.exceptions';
+
+@Catch(OrderConfirmationFailedException, OrderNotFoundException)
+@Injectable()
+export class OrderExceptionsFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx     = host.switchToHttp();
+    const response: Response = ctx.getResponse<Response>();
+
+    if (exception instanceof OrderConfirmationFailedException) {
+      switch (exception.code) {
+        case 'order.empty':
+          throw new BadRequestException(exception.message);
+        case 'order.fetch_failed':
+          throw new NotFoundException(exception.message);
+        case 'storage.unavailable':
+          throw new ServiceUnavailableException(exception.message);
+        default:
+          throw new HttpException(exception.message, 500);
+      }
+    }
+
+    if (exception instanceof OrderNotFoundException) {
+      throw new NotFoundException(exception.message);
+    }
+
+    throw exception;
+  }
+}
+```
+
+`order.controller.ts`
+
+```ts
+import { Controller, Post, Param, UseFilters, Logger } from '@nestjs/common';
+import { ConfirmOrderService } from '../../application/confirm-order.service';
+import { OrderExceptionsFilter } from './order-exceptions.filter';
+
+@Controller('orders')
+@UseFilters(OrderExceptionsFilter)
+export class OrderController {
+  private readonly logger = new Logger(OrderController.name);
+
+  constructor(private readonly confirmOrder: ConfirmOrderService) {}
+
+  @Post(':id/confirm')
+  async confirm(@Param('id') id: string): Promise<{ message: string }> {
+    this.logger.log(`HTTP POST /orders/${id}/confirm`);
+    await this.confirmOrder.execute(id);
+    return { message: 'Order confirmed successfully.' };
+  }
+}
+```
+
+Висновок:
+
+Фактично наша робота з винятками поділяється на два етапи: Перехоплення виключень → Збагачення контексту, де
+
+* **Перехоплення виключень:** Обгортаємо код use-case в `try…catch` і ловимо як очікувані доменні або інфраструктурні виключення, так і будь-які несподівані помилки.
+* **Збагачення контексту:** При відлові помилки фіксуємо ключові дані (ID користувача/сесії, вхідні параметри, стан об’єктів, timestamps, стектрейс), щоб спростити відладку.
+
+Короткий підсумок у вигляді таблиці:
+
+| **Шар (Layer)**    | **Типові винятки (Exceptions)**                                                                | **Призначення**                                                     |
+| ------------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Domain**         | `DomainException`, `BusinessRuleViolationException`, `InvalidStateException`                   | Порушення бізнес-правил, інваріантів або стану сутностей            |
+| **Application**    | `ValidationException`, `UseCaseError`, `DomainException`                                       | Невалідні вхідні дані, обробка доменних винятків, агрегація помилок |
+| **Infrastructure** | `SqlException`, `IOException`, `HttpRequestException`, `StorageUnavailableException`           | Технічні помилки доступу до БД, файлів, мережі, API                 |
+| **Presentation**   | `BadRequestException`, `NotFoundException`, `InternalServerErrorException`, `ExceptionHandler` | Мапінг помилок у HTTP-відповіді або повідомлення користувачу        |
+
+---
+
 ### Резюме:
 Підсумовуючи, хочеться наголосити, що в контексті багатьох архітектурних стилів (`Clean Architecture`, `Hexagonal`, `Onion`, `DDD`) існує `“Dependency Rule”` (правило залежностей) формулюється так:
 > **Код усередині одного шару не може залежати від коду зовнішнього шару.** Іншими словами, стрілки залежності завжди йдуть всередину, від менш стабільних/більш прикладних модулів до більш стабільних/більш абстрактних.
@@ -1229,3 +1599,4 @@ src/
 
 * (Eric Evans - "Domain-Driven Design Tackling Complexity in the Heart of Software")[https://fabiofumarola.github.io/nosql/readingMaterial/Evans03.pdf]
 * (Marco Lenzo - "Domain-Driven Aggregates Explained | Why you should use them")[https://youtu.be/SvnsOX4oVVo?si=cGBi1kU4jKDSb7Ar]
+* (Roman Dykyi - "Error handling and strategies")[https://medium.com/@dykyi.roman/error-handling-and-strategies-a55b5a285b6b]
