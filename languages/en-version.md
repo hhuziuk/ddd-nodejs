@@ -29,8 +29,9 @@
     *   4.1 [Controllers / Routes](#controllers--routes)
     *   4.2 [DTOs (Presentation)](#dtos-presentation)
     *   4.3 [Structure (Presentation)](#structure-presentation)
-5.  [**Summary**](#summary)
-6.  [**References**](#references)
+5.  [**Exceptions**](#exceptions)
+6.  [**Summary**](#summary)
+7.  [**References**](#references)
 
 ---
 
@@ -852,7 +853,6 @@ src/
 > Here is the part of the code responsible for integrating the database connection. To implement such
 
 
-
 ##### **Mappers** 
 
 > Mappers are a technical bridge between Infrastructure <—> Domain <—> DTO; they help us not to mix code and not to violate the `Single Responsibility Principle`. The main reason for using mappers is that the domain model and the ORM entity (or DTO) can have different structures, responsibilities, or levels of abstraction. The mapper is responsible for clean and controlled transformation between these layers, maintaining architectural purity and domain isolation from technical details. For example, in the domain model, Email is a Value Object with validation, while in the database it's a regular string — the mapper encapsulates the transformation logic between them.
@@ -897,7 +897,7 @@ export class UserMapper {
 ```
 
 #### **Repositories (Interfaces)**
-> In `infrastructure` we can describe interfaces that we can later implement.
+> In `Infrastructure`, we can describe interfaces that we can later implement within this same layer.
 
 Here is a small example that we will later implement in `Infrastructure`:
 
@@ -1199,6 +1199,375 @@ src/
         └── gateways/
 ```
 
+---
+
+### Exceptions:
+
+> In this section, we will consider an important and integral part of any application — exception handling. One of the key aspects of this work is correctly throwing exceptions: in the right place, without duplication, and with a clear separation of responsibilities.
+>
+> The DDD approach helps with this, where each architectural layer has its own area of responsibility and works with its own set of exceptions.
+
+First, we need to define the area of responsibility for each layer.
+
+#### Domain Layer
+In this layer, we form basic exceptions directly related to business logic. For example, we have an `Order` entity, and we call a method to confirm an order. If the order does not contain any items, according to business rules, we must throw an exception.
+
+Of course, you could simply write:
+
+```ts
+throw new Error("Cannot confirm an order with no items.");
+```
+
+But this approach has a significant drawback: the exception is not reusable, and it is difficult to type or handle selectively. If such an error recurs in different places (which is likely), we will constantly repeat the same `throw new Error(...)` construct, leading to duplication and violation of clean code principles.
+Instead, it is more appropriate to create a specialized exception class — for example, `CannotConfirmEmptyOrderException` — and use it wherever this business rule is violated. This increases readability, reusability, and control over errors.
+
+Here is a clear example:
+
+`order.entity.ts`
+
+```ts
+import { CannotConfirmEmptyOrderException } from './exceptions/domain.exceptions';
+
+export class Order {
+  private confirmed = false;
+
+  constructor(private readonly items: string[]) {}
+
+  confirm(): void {
+    if (this.items.length === 0) {
+      throw new CannotConfirmEmptyOrderException();
+    }
+    this.confirmed = true;
+  }
+}
+```
+
+`domain.exceptions.ts`
+
+```ts
+export class DomainException extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DomainException';
+  }
+}
+
+export class CannotConfirmEmptyOrderException extends DomainException {
+  constructor() {
+    super('Cannot confirm an order with no items.');
+    this.name = 'CannotConfirmEmptyOrderException';
+  }
+}
+```
+
+#### Application Layer
+
+This layer implements specific business use cases. Key points:
+
+*   **Mapping domain exceptions.** All `DomainException`s are caught and converted into application `ApplicationException`s (with added error code, message, and context).
+*   **DTO validation.** When working with incoming DTOs, data validation is performed — in case of errors, a `ValidationException` is formed.
+*   **Logging.** Each step of use-case execution is accompanied by logs to facilitate tracking and debugging.
+
+Thus, the Application layer first catches domain exceptions, adds the necessary context (retry logic, audit, error codes), and returns the result to the Presentation Layer.
+
+Supplementing our previous example with `Order`:
+
+`confirm-order.service.ts`
+
+```ts
+import { Injectable, Logger } from '@nestjs/common';
+import { OrderRepository } from '../infrastructure/order.repository';
+import { CannotConfirmEmptyOrderException } from '../domain/exceptions/domain.exceptions';
+import { OrderConfirmationFailedException } from '../application/exceptions/application.exceptions';
+
+@Injectable()
+export class ConfirmOrderService {
+  private readonly logger = new Logger(ConfirmOrderService.name);
+
+  constructor(private readonly orderRepo: OrderRepository) {}
+
+  async execute(orderId: string): Promise<void> {
+    this.logger.log(`Starting confirmation for Order ${orderId}`);
+
+    let order;
+    try {
+      order = await this.orderRepo.findById(orderId);
+      this.logger.debug(`Order ${orderId} fetched successfully`);
+    } catch (err) {
+      this.logger.error(
+        `Failed to fetch Order ${orderId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      // here we try to register an audit or retries
+      throw new OrderConfirmationFailedException(
+        'Could not retrieve order',
+        'order.fetch_failed',
+        err as Error,
+      );
+    }
+
+    try {
+      order.confirm();
+      await this.orderRepo.save(order);
+      this.logger.log(`Order ${orderId} confirmed and saved`);
+    } catch (err) {
+      if (err instanceof CannotConfirmEmptyOrderException) {
+        this.logger.warn(
+          `Business rule violation on Order ${orderId}: ${err.message}`,
+        );
+        throw new OrderConfirmationFailedException(
+          err.message,
+          'order.empty',
+          err,
+        );
+      }
+
+      this.logger.error(
+        `Unexpected error on Order ${orderId} confirmation`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw err; // unexpected errors go further
+    }
+  }
+}
+```
+
+`application.exceptions.ts`
+
+```ts
+export class ApplicationException extends Error {
+  constructor(message: string, public readonly code: string, public readonly cause?: Error) {
+    super(message);
+    this.name = 'ApplicationException';
+    if (cause) this.stack = cause.stack;
+  }
+}
+
+export class OrderConfirmationFailedException extends ApplicationException {
+  constructor(message: string, code: string, cause?: Error) {
+    super(message, code, cause);
+    this.name = 'OrderConfirmationFailedException';
+  }
+}
+```
+
+#### Infrastructure Layer
+
+This layer implements integrations with third-party services (databases, third-party APIs, cache, queues, etc.) and, accordingly, we work with errors that these third-party services return. At this level, typical exceptions include: `SqlException`, `IOException`, `HttpRequestException`, etc.
+
+To isolate other layers from implementation details and avoid "leaking" technical information, we:
+
+1.  **Catch low-level exceptions** from drivers and clients of external services.
+2.  **Repackage** them into system-understandable abstractions — custom errors like `StorageUnavailableException`, `CacheAccessException`, `MessageQueueException`, etc.
+3.  **Log** each error with context (operation name, request parameters, timestamp) to a centralized monitoring system or audit server.
+
+```ts
+try {
+  await this.db.query(/* … */);
+} catch (err) {
+  this.logger.error('DB query failed', err.stack);
+  throw new StorageUnavailableException(err);
+}
+```
+
+**Why is this important?**
+
+*   **Layer Isolation.** Domain and application code do not see or depend on the specifics of the SQL driver or HTTP client.
+*   **Cleaner Error Tracing.** They always have the same format, contain their own codes and messages, and a "cause" (the original error) for further analysis.
+*   **Possibility of retry and circuit-breaker.** In case of immediate failures, it's easy to apply retry strategies or limit the load on the service.
+
+Example implementation:
+
+`storage.exceptions.ts`
+
+```ts
+export class StorageUnavailableException extends Error {
+  constructor(cause?: unknown) {
+    super('Storage service is unavailable');
+    this.name = 'StorageUnavailableException';
+    if (cause instanceof Error) {
+      // save the original stack for diagnosis
+      this.stack = cause.stack;
+    }
+  }
+}
+```
+
+`not-found.exceptions.ts`
+
+```ts
+export class OrderNotFoundException extends Error {
+  constructor(orderId: string) {
+    super(`Order with id=${orderId} not found`);
+    this.name = 'OrderNotFoundException';
+  }
+}
+```
+
+`order.repository.ts`
+
+```ts
+import { Injectable, Logger } from '@nestjs/common';
+import { Repository, EntityNotFoundError } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+
+import { OrderEntity } from './order.entity';
+import { Order } from '../domain/order';
+import { OrderMapper } from './order.mapper';
+import { StorageUnavailableException } from './exceptions/storage.exceptions';
+import { OrderNotFoundException } from './exceptions/not-found.exceptions';
+
+@Injectable()
+export class OrderRepository {
+  private readonly logger = new Logger(OrderRepository.name);
+
+  constructor(
+    @InjectRepository(OrderEntity)
+    private readonly repo: Repository<OrderEntity>,
+    private readonly mapper: OrderMapper,
+  ) {}
+
+  async findById(id: string): Promise<Order> {
+    try {
+      this.logger.debug(`Fetching Order ${id} from database`);
+      const entity = await this.repo.findOneOrFail({ where: { id } });
+      this.logger.debug(`Order ${id} found, mapping to domain`);
+      return this.mapper.toDomain(entity);
+    } catch (e) {
+      // if record not found — throw exception
+      if (e instanceof EntityNotFoundError) {
+        this.logger.warn(`Order ${id} not found`);
+        throw new OrderNotFoundException(id);
+      }
+      // all other errors — technical, repackage
+      this.logger.error(
+        `Error fetching Order ${id}`,
+        e instanceof Error ? e.stack : String(e),
+      );
+      throw new StorageUnavailableException(e);
+    }
+  }
+
+  async save(order: Order): Promise<void> {
+    try {
+      this.logger.debug(`Saving Order ${order.id} to database`);
+      const entity = this.mapper.toEntity(order);
+      await this.repo.save(entity);
+      this.logger.log(`Order ${order.id} saved successfully`);
+    } catch (e) {
+      this.logger.error(
+        `Error saving Order ${order.id}`,
+        e instanceof Error ? e.stack : String(e),
+      );
+      throw new StorageUnavailableException(e);
+    }
+  }
+}
+```
+
+#### Presentation Layer
+
+At the Presentation Layer, we convert the results of use-case execution (or thrown exceptions) into correct HTTP (and not only) responses. Here are some key points:
+1. Catching Results
+The controller receives either a Result from the service or propagated exceptions, and maps them to standard NestJS exceptions:
+
+    *   `BadRequestException` (HTTP 400) for validation errors or business rules.
+    *   `NotFoundException` (HTTP 404) if the resource is not found.
+    *   `ServiceUnavailableException` (HTTP 503) for unavailability of external services.
+    *   `InternalServerErrorException` (HTTP 500) for everything else.
+
+2. Global Filter:
+For all uncaught errors, we register an `AllExceptionsFilter` that forms a unified response format and logs errors.
+
+Here is an example implementation:
+
+`order-exceptions.filter.ts`
+
+```ts
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpException,
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+  Injectable,
+} from '@nestjs/common';
+import { Response } from 'express';
+import { OrderConfirmationFailedException } from '../../application/exceptions/application.exceptions';
+import { OrderNotFoundException } from '../../infrastructure/exceptions/not-found.exceptions';
+
+@Catch(OrderConfirmationFailedException, OrderNotFoundException)
+@Injectable()
+export class OrderExceptionsFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx     = host.switchToHttp();
+    const response: Response = ctx.getResponse<Response>();
+
+    if (exception instanceof OrderConfirmationFailedException) {
+      switch (exception.code) {
+        case 'order.empty':
+          throw new BadRequestException(exception.message);
+        case 'order.fetch_failed':
+          throw new NotFoundException(exception.message);
+        case 'storage.unavailable':
+          throw new ServiceUnavailableException(exception.message);
+        default:
+          throw new HttpException(exception.message, 500);
+      }
+    }
+
+    if (exception instanceof OrderNotFoundException) {
+      throw new NotFoundException(exception.message);
+    }
+
+    throw exception;
+  }
+}
+```
+
+`order.controller.ts`
+
+```ts
+import { Controller, Post, Param, UseFilters, Logger } from '@nestjs/common';
+import { ConfirmOrderService } from '../../application/confirm-order.service';
+import { OrderExceptionsFilter } from './order-exceptions.filter';
+
+@Controller('orders')
+@UseFilters(OrderExceptionsFilter)
+export class OrderController {
+  private readonly logger = new Logger(OrderController.name);
+
+  constructor(private readonly confirmOrder: ConfirmOrderService) {}
+
+  @Post(':id/confirm')
+  async confirm(@Param('id') id: string): Promise<{ message: string }> {
+    this.logger.log(`HTTP POST /orders/${id}/confirm`);
+    await this.confirmOrder.execute(id);
+    return { message: 'Order confirmed successfully.' };
+  }
+}
+```
+
+Conclusion:
+
+Effectively, our work with exceptions is divided into two stages: Exception Catching → Context Enrichment, where
+
+*   **Exception Catching:** We wrap the use-case code in `try…catch` and catch both expected domain or infrastructure exceptions, as well as any unexpected errors.
+*   **Context Enrichment:** When an error is caught, we record key data (user/session ID, input parameters, object state, timestamps, stack trace) to simplify debugging.
+
+Brief summary in a table:
+
+| **Layer**          | **Typical Exceptions**                                                                     | **Purpose**                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| **Domain**         | `DomainException`, `BusinessRuleViolationException`, `InvalidStateException`               | Violation of business rules, invariants, or entity state                    |
+| **Application**    | `ValidationException`, `UseCaseError`, `DomainException`                                   | Invalid input data, handling domain exceptions, error aggregation           |
+| **Infrastructure** | `SqlException`, `IOException`, `HttpRequestException`, `StorageUnavailableException`       | Technical errors accessing DB, files, network, API                          |
+| **Presentation**   | `BadRequestException`, `NotFoundException`, `InternalServerErrorException`, `ExceptionHandler` | Mapping errors to HTTP responses or user messages                           |
+
+---
+
 ### Summary:
 In summary, it is worth emphasizing that in the context of many architectural styles (`Clean Architecture`, `Hexagonal`, `Onion`, `DDD`), there is a `“Dependency Rule”` (dependency rule) formulated as follows:
 > **Code within one layer cannot depend on code from an outer layer.** In other words, dependency arrows always point inwards, from less stable/more application-specific modules to more stable/more abstract ones.
@@ -1214,7 +1583,7 @@ And here is a short table summarizing all the sections described in the article:
 | **Domain**       | Definition and encapsulation of business logic, domain rules, invariants, and state.                              | Entities, Value Objects, Aggregates, Domain Services, Repository Interfaces.                                                                  |
 | **Application**  | Orchestration of use cases, coordination of interaction between domain objects and infrastructure.                | Application Services, Commands, Queries, Application DTOs (for service input/output data).                                                      |
 | **Infrastructure**| Implementation of interaction with external systems (databases, third-party APIs, file system, message queues, cache). | Repository implementations, ORM entities, Mappers, Adapters/Gateways to external services, configuration, loggers.                             |
-| **Presentation** | Interaction with the user or other client systems (HTTP API, WebSocket, GraphQL, CLI).                            | Controllers/Routers, Presentation DTOs (for requests/responses), Event Handlers, UI (if any).                                                   |
+| **Presentation** | Interaction with the user or other client systems (HTTP API, WebSocket, GraphQL, CLI).                            | Controllers/Routes, Presentation DTOs (for requests/responses), Event Handlers, UI (if any).                                                   |
 
 Adhering to such a division into layers and a clear definition of their responsibilities helps build systems that are:
 - **Testable:** Business logic in `Domain` is isolated and can be tested without dependency on UI or DB.
@@ -1227,5 +1596,5 @@ Adhering to such a division into layers and a clear definition of their responsi
 ### References
 
 * (Eric Evans - "Domain-Driven Design Tackling Complexity in the Heart of Software")[https://fabiofumarola.github.io/nosql/readingMaterial/Evans03.pdf]
-* (Marco Lenzo - "Domain-Driven Aggregates Explained | Why you should use them")[https://youtu.be/SvnsOX4oVVo?si=cGBi1kU4jKDSb7Ar]
-```
+* (Marco Lenzo - "Domain-Driven Aggregates Explained | Why you should use them")[https://youtu.be/SvnsOX4oVVo?si=fOr35OPCDUUFNWQn]
+* (Roman Dykyi - "Error handling and strategies")[https://medium.com/@dykyi.roman/error-handling-and-strategies-a55b5a285b6b]
